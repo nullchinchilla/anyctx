@@ -11,6 +11,9 @@ pub struct Context {
     inner: Arc<RwLock<AHashMap<*const (), Arc<RwLock<MaybeUninit<Box<dyn Any + Send + Sync>>>>>>>,
 }
 
+unsafe impl Send for Context {}
+unsafe impl Sync for Context {}
+
 impl Context {
     /// Creates a new context.
     pub fn new() -> Self {
@@ -44,7 +47,7 @@ impl Context {
         }
     }
 
-    fn get<T: 'static + Send + Sync>(&self, init: fn(&Self) -> T) -> Option<&T> {
+    fn get<'a, T: 'static + Send + Sync>(&'a self, init: fn(&'a Self) -> T) -> Option<&'a T> {
         let inner = self.inner.read().unwrap();
         let b = inner.get(&(init as *const ()))?;
         let b = b.read().unwrap();
@@ -54,7 +57,7 @@ impl Context {
             .downcast_ref()
             .expect("downcast failed, this should not happen");
         // SAFETY: we never remove items from inner without dropping Context first, and the address of what Box points to cannot change, so this is safe
-        let downcasted: &'static T = unsafe { std::mem::transmute(downcasted) };
+        let downcasted: &'a T = unsafe { std::mem::transmute(downcasted) };
         Some(downcasted)
     }
 }
