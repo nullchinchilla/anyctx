@@ -12,7 +12,7 @@ use ahash::AHashMap;
 ///
 /// This context allows for the dynamic association of data with a key derived from a lazily evaluated constructor. It is designed to be thread-safe and can be shared across threads.
 ///
-/// Moreover, the context also wraps a provided *initialization value* as a smart pointer. This allows easy access to data that's more ergonomically passed in at initialization rather than lazily initialized later.
+/// Moreover, the context also wraps a provided *initialization value*. This allows easy access to data that's more ergonomically passed in at initialization rather than lazily initialized later.
 ///
 /// Generics:
 /// - `I`: Initialization info type, which must be `Send + Sync + 'static`
@@ -23,7 +23,7 @@ use ahash::AHashMap;
 /// use anyctx::AnyCtx;
 ///
 /// fn forty_two(ctx: &AnyCtx<i32>) -> i32 {
-///     40 + **ctx
+///     40 + *ctx.init()
 /// }
 ///
 /// let ctx = AnyCtx::new(2);
@@ -38,13 +38,6 @@ pub struct AnyCtx<I: Send + Sync + 'static> {
 unsafe impl<T: Send + Sync + 'static> Send for AnyCtx<T> {}
 unsafe impl<T: Send + Sync + 'static> Sync for AnyCtx<T> {}
 
-impl<I: Send + Sync + 'static> Deref for AnyCtx<I> {
-    type Target = I;
-    fn deref(&self) -> &Self::Target {
-        self.init.deref()
-    }
-}
-
 impl<I: Send + Sync + 'static> AnyCtx<I> {
     /// Creates a new context, wrapping the given initialization value.
     pub fn new(init: I) -> Self {
@@ -52,6 +45,11 @@ impl<I: Send + Sync + 'static> AnyCtx<I> {
             init: init.into(),
             dynamic: Default::default(),
         }
+    }
+
+    /// Gets the initialization value.
+    pub fn init(&self) -> &I {
+        &self.init
     }
 
     /// Gets the value associated with the given constructor function. If there already is a value, the value will be retrieved. Otherwise, the constructor will be run to produce the value, which will be stored in the context.
