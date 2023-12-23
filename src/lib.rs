@@ -1,5 +1,5 @@
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     mem::MaybeUninit,
     ops::Deref,
     sync::{Arc, RwLock},
@@ -32,7 +32,7 @@ use ahash::AHashMap;
 /// ```
 pub struct AnyCtx<I: Send + Sync + 'static> {
     init: Arc<I>,
-    dynamic: Arc<RwLock<AHashMap<*const (), Arc<RwLock<MaybeUninit<Box<dyn Any + Send + Sync>>>>>>>,
+    dynamic: Arc<RwLock<AHashMap<TypeId, Arc<RwLock<MaybeUninit<Box<dyn Any + Send + Sync>>>>>>>,
 }
 
 unsafe impl<T: Send + Sync + 'static> Send for AnyCtx<T> {}
@@ -57,12 +57,15 @@ impl<I: Send + Sync + 'static> AnyCtx<I> {
     /// It is guaranteed that the constructor will be called at most once, even if `get` is called concurrently from multiple threads with the same key.
     ///
     /// The constructor itself should take in an AnyCtx as an argument, and is allowed to call `get` too. Take care to avoid infinite recursion, which will cause a deadlock.
-    pub fn get<T: 'static + Send + Sync>(&self, construct: fn(&Self) -> T) -> &T {
+    pub fn get<T: 'static + Send + Sync, F: Fn(&Self) -> T + 'static + Send + Sync + Copy>(
+        &self,
+        construct: F,
+    ) -> &T {
         loop {
             if let Some(exists) = self.get_inner(construct) {
                 return exists;
             } else {
-                let key: *const () = construct as *const ();
+                let key = construct.type_id();
                 let mut inner = self.dynamic.write().unwrap();
                 if inner.contains_key(&key) {
                     // now get will return, so loop around
@@ -83,9 +86,12 @@ impl<I: Send + Sync + 'static> AnyCtx<I> {
         }
     }
 
-    fn get_inner<'a, T: 'static + Send + Sync>(&'a self, init: fn(&'a Self) -> T) -> Option<&'a T> {
+    fn get_inner<'a, T: 'static + Send + Sync, F: Fn(&Self) -> T + 'static + Send + Sync + Copy>(
+        &'a self,
+        init: F,
+    ) -> Option<&'a T> {
         let inner = self.dynamic.read().unwrap();
-        let b = inner.get(&(init as *const ()))?;
+        let b = inner.get(&init.type_id())?;
         let b = b.read().unwrap();
         // SAFETY: by the time we can read-lock this value, we know that it has already initialized, since the initialization function holds a lock for the full duration.
         let b = unsafe { b.assume_init_ref() };
@@ -100,6 +106,8 @@ impl<I: Send + Sync + 'static> AnyCtx<I> {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+
     use crate::AnyCtx;
 
     fn one(_ctx: &AnyCtx<()>) -> usize {
@@ -119,5 +127,21 @@ mod tests {
         let ctx = AnyCtx::new(());
         assert_eq!(ctx.get(two), &2);
         assert_eq!(ctx.get(hello), "hello")
+    }
+
+    #[test]
+    fn function_magic() {
+        fn a() -> usize {
+            1
+        }
+
+        fn b() -> usize {
+            1
+        }
+
+        eprintln!("{}", a as usize);
+        eprintln!("{}", b as usize);
+        eprintln!("{:?}", a.type_id());
+        eprintln!("{:?}", b.type_id());
     }
 }
