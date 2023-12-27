@@ -1,5 +1,6 @@
 use std::{
     any::{Any, TypeId},
+    fmt::Debug,
     mem::MaybeUninit,
     ops::Deref,
     sync::{Arc, RwLock},
@@ -37,6 +38,12 @@ pub struct AnyCtx<I: Send + Sync + 'static> {
 
 unsafe impl<T: Send + Sync + 'static> Send for AnyCtx<T> {}
 unsafe impl<T: Send + Sync + 'static> Sync for AnyCtx<T> {}
+
+impl<T: Send + Sync + 'static> Debug for AnyCtx<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format!("AnyCtx({} keys)", self.dynamic.read().unwrap().len()).fmt(f)
+    }
+}
 
 impl<I: Send + Sync + 'static> AnyCtx<I> {
     /// Creates a new context, wrapping the given initialization value.
